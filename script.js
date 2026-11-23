@@ -31,10 +31,51 @@ const TYPE_LABELS = {
   flying: { label: 'Voador', cls: 't-flying' },
   dark: { label: 'Sombrio', cls: 't-dark' }
 };
+// Todos os Pokémons cujos detalhes já foram baixados (lista, busca ou favoritos), por id
+const pokemonCache = new Map();
+// Índice leve com { id, name } de TODOS os Pokémons da API (baixado uma vez, na primeira busca)
+let pokemonIndex = null;
+// Ids de cada tipo, vindos de /type/{tipo} (ex.: typeIdsCache.water = Set de ids)
+const typeIdsCache = {};
+// Quantos resultados mostrar na busca (cresce com o botão "Carregar mais")
+let limiteBusca = POKEMONS_PER_PAGE;
+// Evita que uma busca antiga (mais lenta) sobrescreva o resultado de uma mais nova
+let buscaToken = 0;
+
 async function fetchPokemonDetails(url) {
   const response = await fetch(url);
   if (!response.ok) throw new Error('Erro ao buscar dados do Pokémon');
   return await response.json();
+}
+
+function idDaUrl(url) {
+  const match = url.match(/\/(\d+)\/?$/);
+  return match ? Number(match[1]) : null;
+}
+
+async function fetchPokemonById(id) {
+  if (pokemonCache.has(id)) return pokemonCache.get(id);
+  const p = await fetchPokemonDetails(`${API_BASE_URL}/pokemon/${id}`);
+  pokemonCache.set(p.id, p);
+  return p;
+}
+
+async function carregarIndice() {
+  if (pokemonIndex) return pokemonIndex;
+  const response = await fetch(`${API_BASE_URL}/pokemon?limit=2000`);
+  if (!response.ok) throw new Error('Falha ao baixar a lista de Pokémons');
+  const data = await response.json();
+  pokemonIndex = data.results.map(item => ({ id: idDaUrl(item.url), name: item.name }));
+  return pokemonIndex;
+}
+
+async function carregarIdsDoTipo(tipo) {
+  if (typeIdsCache[tipo]) return typeIdsCache[tipo];
+  const response = await fetch(`${API_BASE_URL}/type/${tipo}`);
+  if (!response.ok) throw new Error('Falha ao buscar o tipo');
+  const data = await response.json();
+  typeIdsCache[tipo] = new Set(data.pokemon.map(item => idDaUrl(item.pokemon.url)));
+  return typeIdsCache[tipo];
 }
 async function fetchPokemonBatch(offset = 0, limit = POKEMONS_PER_PAGE) {
   if (isLoading) return [];
@@ -52,7 +93,7 @@ async function fetchPokemonBatch(offset = 0, limit = POKEMONS_PER_PAGE) {
       hasMorePokemons = false;
     }
     // Busca os dados completos de todos os Pokémons da página em paralelo
-    const detailPromises = data.results.map(item => fetchPokemonDetails(item.url));
+    const detailPromises = data.results.map(item => fetchPokemonById(idDaUrl(item.url)));
     const newPokemons = await Promise.all(detailPromises);
     pokemons = [...pokemons, ...newPokemons];
     currentOffset += limit;
@@ -80,7 +121,7 @@ const STAT_BARS = [
   ['speed', 'statSpeed', 'statSpeedVal']
 ];
 
-// ============ RODADA 6 (LUIZ) ============
+
 const STORAGE_FAVORITES_KEY = 'pokedex_favoritos_v1';
 // Cada treinador tem sua própria chave (a chave base + o id do usuário no Supabase)
 let favoritesKey = STORAGE_FAVORITES_KEY;
@@ -137,7 +178,7 @@ async function sincronizarFavorito(id, adicionando) {
 }
 
 function findPokemon(id) {
-  return pokemons.find(p => p.id === id);
+  return pokemonCache.get(id);
 }
 
 function capitalize(text) {
@@ -176,51 +217,116 @@ function cardHtml(p) {
     </li>`;
 }
 
-function getFilteredPokemons() {
+function lerFiltros() {
   const searchInput = document.getElementById('buscaPokemon');
   const typeSelect = document.getElementById('filtroTipo');
-
-  const searchTerm = searchInput ? searchInput.value.trim().toLowerCase() : '';
-  const selectedType = typeSelect ? typeSelect.value : '';
-
-  const cleanSearch = searchTerm.replace(/^#/, '');
-
-  return pokemons.filter(p => {
-    const matchesName = p.name.toLowerCase().includes(cleanSearch);
-    const matchesNumber = String(p.id).includes(cleanSearch) ||
-      String(p.id).padStart(3, '0').includes(cleanSearch);
-    const matchesSearch = !cleanSearch || matchesName || matchesNumber;
-
-    const matchesType = !selectedType || p.types.some(t => t.type.name === selectedType);
-    return matchesSearch && matchesType;
-  });
+  const termo = searchInput ? searchInput.value.trim().toLowerCase().replace(/^#/, '') : '';
+  const tipo = typeSelect ? typeSelect.value : '';
+  return { termo, tipo };
 }
-function renderList() {
-  const filtered = getFilteredPokemons();
+
+// Mesma regra de antes: bate pelo nome ou pelo número (com ou sem zeros à esquerda)
+function combinaComTermo(p, termo) {
+  if (!termo) return true;
+  return p.name.toLowerCase().includes(termo) ||
+    String(p.id).includes(termo) ||
+    String(p.id).padStart(3, '0').includes(termo);
+}
+
+// Procura na Pokédex inteira (índice completo da API), não só no que já foi carregado
+async function buscarNaPokedexInteira(termo, tipo) {
+  let candidatos = await carregarIndice();
+  if (tipo) {
+    const idsDoTipo = await carregarIdsDoTipo(tipo);
+    candidatos = candidatos.filter(p => idsDoTipo.has(p.id));
+  }
+  candidatos = candidatos.filter(p => combinaComTermo(p, termo));
+
+  const pagina = candidatos.slice(0, limiteBusca);
+  const statusMsg = document.getElementById('statusMsg');
+  const precisaBaixar = pagina.some(p => !pokemonCache.has(p.id));
+  if (statusMsg && precisaBaixar) {
+    statusMsg.textContent = 'Buscando Pokémons...';
+    statusMsg.hidden = false;
+  }
+  try {
+    const resultados = await Promise.all(pagina.map(p => fetchPokemonById(p.id)));
+    return { resultados, temMais: candidatos.length > pagina.length };
+  } finally {
+    if (statusMsg && precisaBaixar) statusMsg.hidden = true;
+  }
+}
+
+// Busca antiga (só no que já foi carregado), usada se a PokéAPI não responder ao índice
+function filtrarCarregados(termo, tipo) {
+  return pokemons.filter(p =>
+    combinaComTermo(p, termo) && (!tipo || p.types.some(t => t.type.name === tipo))
+  );
+}
+
+function atualizarBotaoMais(temMais, filtrando) {
+  const wrap = document.getElementById('loadMoreWrap');
+  const btn = document.getElementById('btnCarregarMais');
+  if (!wrap || !btn) return;
+  if (filtrando) {
+    wrap.hidden = !temMais;
+    btn.disabled = false;
+    btn.textContent = 'Carregar mais resultados';
+    return;
+  }
+  wrap.hidden = false;
+  btn.disabled = !temMais;
+  btn.textContent = temMais ? 'Carregar mais Pokémons' : 'Todos os Pokémons foram carregados';
+}
+
+function desenharCards(lista) {
   const cardGrid = document.getElementById('cardGrid');
-  if (filtered.length === 0) {
+  if (lista.length === 0) {
     cardGrid.innerHTML = '<li class="sub" style="grid-column: 1 / -1; text-align: center; padding: 40px 16px;">Nenhum Pokémon encontrado.</li>';
     return;
   }
-  cardGrid.innerHTML = filtered.map(cardHtml).join('');
+  cardGrid.innerHTML = lista.map(cardHtml).join('');
+}
+
+async function renderList() {
+  const { termo, tipo } = lerFiltros();
+  const filtrando = Boolean(termo || tipo);
+
+  if (!filtrando) {
+    buscaToken++;
+    desenharCards(pokemons);
+    atualizarBotaoMais(hasMorePokemons, false);
+    return;
+  }
+
+  const token = ++buscaToken;
+  try {
+    const { resultados, temMais } = await buscarNaPokedexInteira(termo, tipo);
+    if (token !== buscaToken) return;
+    desenharCards(resultados);
+    atualizarBotaoMais(temMais, true);
+  } catch (erro) {
+    console.error('Erro na busca completa, usando só os já carregados:', erro);
+    if (token !== buscaToken) return;
+    desenharCards(filtrarCarregados(termo, tipo));
+    atualizarBotaoMais(false, true);
+  }
 }
 
 
 async function renderFavorites() {
   const grid = document.getElementById('favGrid');
 
-  const idsFaltantes = Array.from(favorites).filter(id => !pokemons.some(p => p.id === id));
-  if (idsFaltantes.length > 0) {
-    try {
-      const promessas = idsFaltantes.map(id => fetchPokemonDetails(`${API_BASE_URL}/pokemon/${id}`));
-      const novosDetalhes = await Promise.all(promessas);
-      pokemons = [...pokemons, ...novosDetalhes];
-    } catch (e) {
-      console.error('Erro ao carregar favoritos da PokéAPI:', e);
-    }
+  try {
+    await Promise.all(Array.from(favorites).map(id => fetchPokemonById(id)));
+  } catch (e) {
+    console.error('Erro ao carregar favoritos da PokéAPI:', e);
   }
 
-  const favPokemons = pokemons.filter(p => favorites.has(p.id));
+  const favPokemons = Array.from(favorites)
+    .map(id => pokemonCache.get(id))
+    .filter(Boolean)
+    .sort((a, b) => a.id - b.id);
 
   if (favPokemons.length === 0) {
     grid.innerHTML = '<li class="sub">Você ainda não favoritou nenhum Pokémon.</li>';
@@ -256,7 +362,8 @@ function renderDetail(id) {
   document.getElementById('detailAbilities').textContent = p.abilities.map(a => capitalize(a.ability.name)).join(', ');
   updateFavBtn();
 
-  const maxStat = 150;
+  // 255 é o maior valor possível de um status base
+  const maxStat = 255;
   STAT_BARS.forEach(([statName, barId, valId]) => {
     const val = getStat(p, statName);
     document.getElementById(barId).style.width = Math.min(100, (val / maxStat) * 100) + '%';
@@ -273,19 +380,19 @@ function updateFavBtn() {
 const btnCarregarMais = document.getElementById('btnCarregarMais');
 if (btnCarregarMais) {
   btnCarregarMais.addEventListener('click', async () => {
-    if (isLoading || !hasMorePokemons) return;
-    const textoOriginal = btnCarregarMais.textContent;
+    if (isLoading) return;
+    const { termo, tipo } = lerFiltros();
+    const filtrando = Boolean(termo || tipo);
+    if (!filtrando && !hasMorePokemons) return;
+
     btnCarregarMais.disabled = true;
     btnCarregarMais.textContent = 'Carregando Pokémons...';
-    await fetchPokemonBatch(currentOffset, POKEMONS_PER_PAGE);
-    renderList();
-    if (!hasMorePokemons) {
-      btnCarregarMais.textContent = 'Todos os Pokémons foram carregados';
-      btnCarregarMais.disabled = true;
+    if (filtrando) {
+      limiteBusca += POKEMONS_PER_PAGE;
     } else {
-      btnCarregarMais.textContent = textoOriginal;
-      btnCarregarMais.disabled = false;
+      await fetchPokemonBatch(currentOffset, POKEMONS_PER_PAGE);
     }
+    await renderList();
   });
 }
   function toggleFavorite(id) {
@@ -537,13 +644,24 @@ if (btnCarregarMais) {
 
   // Filtros da lista: busca por texto e seleção de tipo
   const buscaInput = document.getElementById('buscaPokemon');
+  // Espera o usuário parar de digitar (300 ms) antes de buscar, para não disparar uma busca por letra
+  let esperaDigitacao = null;
   if (buscaInput) {
-    buscaInput.addEventListener('input', () => renderList());
+    buscaInput.addEventListener('input', () => {
+      clearTimeout(esperaDigitacao);
+      esperaDigitacao = setTimeout(() => {
+        limiteBusca = POKEMONS_PER_PAGE;
+        renderList();
+      }, 300);
+    });
   }
 
   const filtroTipoSelect = document.getElementById('filtroTipo');
   if (filtroTipoSelect) {
-    filtroTipoSelect.addEventListener('change', () => renderList());
+    filtroTipoSelect.addEventListener('change', () => {
+      limiteBusca = POKEMONS_PER_PAGE;
+      renderList();
+    });
   }
 
   // Mantém o treinador logado ao recarregar a página (F5)
