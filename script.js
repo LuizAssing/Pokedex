@@ -346,30 +346,261 @@ async function renderFavorites() {
     .join('');
 }
 
-function renderDetail(id) {
-  const p = findPokemon(id);
-  if (!p) return;
+// 255 é o maior valor de status base que existe nos jogos (HP da Blissey)
+const MAIOR_STATUS_POSSIVEL = 255;
+const URL_ARTE_OFICIAL = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork';
 
+// A PokéAPI não tem textos em português, então usamos espanhol e, se faltar, inglês
+const IDIOMAS_DESCRICAO = ['es', 'en'];
+
+const REGIOES_POR_GERACAO = {
+  'generation-i': '1ª geração · Kanto',
+  'generation-ii': '2ª geração · Johto',
+  'generation-iii': '3ª geração · Hoenn',
+  'generation-iv': '4ª geração · Sinnoh',
+  'generation-v': '5ª geração · Unova',
+  'generation-vi': '6ª geração · Kalos',
+  'generation-vii': '7ª geração · Alola',
+  'generation-viii': '8ª geração · Galar',
+  'generation-ix': '9ª geração · Paldea'
+};
+
+const NOMES_HABITAT = {
+  cave: 'Cavernas',
+  forest: 'Florestas',
+  grassland: 'Campos',
+  mountain: 'Montanhas',
+  rare: 'Raro',
+  'rough-terrain': 'Terreno acidentado',
+  sea: 'Mar',
+  urban: 'Cidades',
+  'waters-edge': 'Beira d\'água'
+};
+
+const cacheRelacoesTipo = {};
+let totalEspeciesDetalhe = null;
+
+function formatarNome(nome) {
+  return nome.split('-').map(capitalize).join(' ');
+}
+
+async function obterTotalEspecies() {
+  if (totalEspeciesDetalhe === null) {
+    const data = await fetchPokemonDetails(`${API_BASE_URL}/pokemon-species?limit=1`);
+    totalEspeciesDetalhe = data.count;
+  }
+  return totalEspeciesDetalhe;
+}
+
+async function relacoesDoTipo(tipo) {
+  if (!cacheRelacoesTipo[tipo]) {
+    const data = await fetchPokemonDetails(`${API_BASE_URL}/type/${tipo}`);
+    cacheRelacoesTipo[tipo] = data.damage_relations;
+  }
+  return cacheRelacoesTipo[tipo];
+}
+
+// Multiplica o dano de cada tipo atacante pelos tipos do Pokémon (ex.: Charizard leva 4x de Pedra)
+async function calcularEficacia(p) {
+  const multiplicadores = {};
+  Object.keys(TYPE_LABELS).forEach(tipo => {
+    multiplicadores[tipo] = 1;
+  });
+
+  const relacoes = await Promise.all(p.types.map(t => relacoesDoTipo(t.type.name)));
+  relacoes.forEach(rel => {
+    rel.double_damage_from.forEach(t => { if (t.name in multiplicadores) multiplicadores[t.name] *= 2; });
+    rel.half_damage_from.forEach(t => { if (t.name in multiplicadores) multiplicadores[t.name] *= 0.5; });
+    rel.no_damage_from.forEach(t => { if (t.name in multiplicadores) multiplicadores[t.name] = 0; });
+  });
+  return multiplicadores;
+}
+
+function tagsDeEficacia(multiplicadores, condicao) {
+  const textoMultiplicador = { 4: '×4', 2: '×2', 0.5: '×½', 0.25: '×¼', 0: '×0' };
+  const tags = Object.entries(multiplicadores)
+    .filter(([, valor]) => condicao(valor))
+    .sort((a, b) => b[1] - a[1])
+    .map(([tipo, valor]) => {
+      const info = TYPE_LABELS[tipo];
+      return `<span class="type-tag ${info.cls}">${info.label} ${textoMultiplicador[valor] || ''}</span>`;
+    });
+  return tags.length ? tags.join('') : '<span class="sub">Nenhum</span>';
+}
+
+function renderEficacia(multiplicadores) {
+  document.getElementById('detailFraquezas').innerHTML = tagsDeEficacia(multiplicadores, v => v > 1);
+  document.getElementById('detailResistencias').innerHTML = tagsDeEficacia(multiplicadores, v => v > 0 && v < 1);
+  document.getElementById('detailImunidades').innerHTML = tagsDeEficacia(multiplicadores, v => v === 0);
+}
+
+function textoCondicaoEvolucao(detalhe) {
+  if (!detalhe) return '';
+  if (detalhe.min_level) return `Nível ${detalhe.min_level}`;
+  if (detalhe.item) return formatarNome(detalhe.item.name);
+  if (detalhe.trigger?.name === 'trade') return 'Troca';
+  if (detalhe.min_happiness) return 'Amizade alta';
+  if (detalhe.known_move) return `Conhecer ${formatarNome(detalhe.known_move.name)}`;
+  return 'Condição especial';
+}
+
+// Transforma a árvore da evolution-chain em etapas: [[Bulbasaur], [Ivysaur], [Venusaur]]
+function etapasDaEvolucao(no, etapa = 0, etapas = []) {
+  if (!etapas[etapa]) etapas[etapa] = [];
+  etapas[etapa].push({
+    id: idDaUrl(no.species.url),
+    nome: no.species.name,
+    condicao: textoCondicaoEvolucao(no.evolution_details[0])
+  });
+  no.evolves_to.forEach(filho => etapasDaEvolucao(filho, etapa + 1, etapas));
+  return etapas;
+}
+
+function renderEvolucoes(cadeia, idAtual) {
+  const lista = document.getElementById('detailEvolucoes');
+  const etapas = etapasDaEvolucao(cadeia);
+
+  if (etapas.length === 1) {
+    lista.innerHTML = '<li class="sub">Este Pokémon não evolui.</li>';
+    return;
+  }
+
+  lista.innerHTML = etapas
+    .map(etapa => `
+      <li class="evo-etapa">
+        ${etapa.map(evo => `
+          <button type="button" class="evo-item ${evo.id === idAtual ? 'atual' : ''}" data-evo-id="${evo.id}">
+            <img src="${URL_ARTE_OFICIAL}/${evo.id}.png" alt="" loading="lazy">
+            <span class="dex-no">Nº ${String(evo.id).padStart(4, '0')}</span>
+            <strong>${formatarNome(evo.nome)}</strong>
+            ${evo.condicao ? `<small>${evo.condicao}</small>` : ''}
+          </button>`).join('')}
+      </li>`)
+    .join('');
+}
+
+function renderEspecie(especie) {
+  const genero = especie.genera.find(g => IDIOMAS_DESCRICAO.includes(g.language.name));
+  document.getElementById('detailCategoria').textContent = genero ? genero.genus : '';
+
+  // pega a descrição do jogo mais recente no primeiro idioma disponível
+  let descricao = null;
+  for (const idioma of IDIOMAS_DESCRICAO) {
+    const textos = especie.flavor_text_entries.filter(f => f.language.name === idioma);
+    if (textos.length) {
+      descricao = textos[textos.length - 1];
+      break;
+    }
+  }
+  document.getElementById('detailDescricao').textContent = descricao
+    ? descricao.flavor_text.replace(/[\n\f\u00ad]/g, ' ')
+    : 'Sem descrição disponível.';
+  document.getElementById('detailFonte').textContent = descricao
+    ? `Texto oficial de Pokémon ${formatarNome(descricao.version.name)} (${descricao.language.name === 'es' ? 'espanhol' : 'inglês'}).`
+    : '';
+
+  document.getElementById('detailGeracao').textContent = REGIOES_POR_GERACAO[especie.generation.name] || especie.generation.name;
+  document.getElementById('detailHabitat').textContent = especie.habitat ? (NOMES_HABITAT[especie.habitat.name] || especie.habitat.name) : 'Não informado';
+  document.getElementById('detailCaptura').textContent = `${especie.capture_rate} de 255`;
+
+  if (especie.gender_rate === -1) {
+    document.getElementById('detailGenero').textContent = 'Sem gênero';
+  } else {
+    const femea = especie.gender_rate * 12.5;
+    document.getElementById('detailGenero').textContent =
+      `♂ ${(100 - femea).toLocaleString('pt-BR')}% · ♀ ${femea.toLocaleString('pt-BR')}%`;
+  }
+
+  let raridade = '';
+  if (especie.is_legendary) raridade = 'Lendário';
+  if (especie.is_mythical) raridade = 'Mítico';
+  if (especie.is_baby) raridade = 'Bebê';
+  document.getElementById('detailRaridade').innerHTML = raridade ? `<span class="raridade">${raridade}</span>` : '';
+}
+
+function limparDadosEspecie() {
+  ['detailCategoria', 'detailDescricao', 'detailFonte', 'detailGeracao', 'detailHabitat',
+    'detailCaptura', 'detailGenero', 'detailRaridade', 'detailFraquezas', 'detailResistencias',
+    'detailImunidades', 'detailEvolucoes'].forEach(id => {
+    document.getElementById(id).textContent = '';
+  });
+  document.getElementById('detailDescricao').textContent = 'Carregando...';
+}
+
+async function atualizarNavegacaoDetalhe(id) {
+  const anterior = document.getElementById('detailAnterior');
+  const proximo = document.getElementById('detailProximo');
+  document.getElementById('detailAnteriorNo').textContent = 'Nº ' + String(id - 1).padStart(4, '0');
+  document.getElementById('detailProximoNo').textContent = 'Nº ' + String(id + 1).padStart(4, '0');
+  anterior.hidden = id <= 1;
+  try {
+    proximo.hidden = id >= await obterTotalEspecies();
+  } catch (erro) {
+    proximo.hidden = false;
+  }
+}
+
+async function renderDetail(id) {
   currentDetailId = id;
+  window.scrollTo(0, 0);
+
+  let p;
+  try {
+    p = await fetchPokemonById(id);
+  } catch (erro) {
+    console.error('Erro ao carregar Pokémon:', erro);
+    document.getElementById('detailName').textContent = 'Não foi possível carregar este Pokémon.';
+    return;
+  }
+  // se o usuário já clicou em outro Pokémon enquanto carregava, ignora este
+  if (currentDetailId !== id) return;
+
   document.getElementById('detailImg').src = artworkUrl(p);
   document.getElementById('detailImg').alt = capitalize(p.name);
-  document.getElementById('detailNo').textContent = '#' + String(p.id).padStart(3, '0');
-  document.getElementById('detailName').textContent = capitalize(p.name);
+  document.getElementById('detailNo').textContent = 'Nº ' + String(p.id).padStart(4, '0');
+  document.getElementById('detailName').textContent = formatarNome(p.name);
   document.getElementById('detailTypes').innerHTML = typesHtml(p);
-  // height/weight vêm da API em decímetros/hectogramas.
-  document.getElementById('detailHeight').textContent = (p.height / 10).toString().replace('.', ',') + ' m';
-  document.getElementById('detailWeight').textContent = (p.weight / 10).toString().replace('.', ',') + ' kg';
-  document.getElementById('detailAbilities').textContent = p.abilities.map(a => capitalize(a.ability.name)).join(', ');
+  // altura e peso vêm da API em decímetros e hectogramas
+  document.getElementById('detailHeight').textContent = (p.height / 10).toLocaleString('pt-BR') + ' m';
+  document.getElementById('detailWeight').textContent = (p.weight / 10).toLocaleString('pt-BR') + ' kg';
+  document.getElementById('detailAbilities').textContent = p.abilities
+    .map(a => formatarNome(a.ability.name) + (a.is_hidden ? ' (oculta)' : ''))
+    .join(', ');
+  document.getElementById('detailExperiencia').textContent = p.base_experience ?? '—';
   updateFavBtn();
+  atualizarNavegacaoDetalhe(id);
 
-  // 255 é o maior valor possível de um status base
-  const maxStat = 255;
+  let total = 0;
   STAT_BARS.forEach(([statName, barId, valId]) => {
     const val = getStat(p, statName);
-    document.getElementById(barId).style.width = Math.min(100, (val / maxStat) * 100) + '%';
+    total += val;
+    const barra = document.getElementById(barId);
+    barra.style.width = (val / MAIOR_STATUS_POSSIVEL) * 100 + '%';
+    // faixas parecidas com as do PokémonDB: vermelho = baixo, amarelo = médio, verde = alto
+    barra.className = 'stat-fill ' + (val < 60 ? 'baixo' : val < 90 ? 'medio' : 'alto');
     document.getElementById(valId).textContent = val;
   });
+  document.getElementById('statTotal').textContent = total;
+
+  limparDadosEspecie();
+  try {
+    const especie = await fetchPokemonDetails(p.species.url);
+    if (currentDetailId !== id) return;
+    renderEspecie(especie);
+
+    const [cadeia, eficacia] = await Promise.all([
+      fetchPokemonDetails(especie.evolution_chain.url),
+      calcularEficacia(p)
+    ]);
+    if (currentDetailId !== id) return;
+    renderEvolucoes(cadeia.chain, id);
+    renderEficacia(eficacia);
+  } catch (erro) {
+    console.error('Erro ao carregar dados da espécie:', erro);
+    document.getElementById('detailDescricao').textContent = 'Não foi possível carregar a descrição e a evolução.';
+  }
 }
+
 
 function updateFavBtn() {
   const btn = document.getElementById('detailFavBtn');
@@ -624,6 +855,22 @@ if (btnCarregarMais) {
     toggleFavorite(currentDetailId);
     updateFavBtn();
   });
+
+  
+  // Detalhes: botões anterior / próximo e clique em uma evolução
+  document.getElementById('detailAnterior').addEventListener('click', () => {
+    if (currentDetailId > 1) renderDetail(currentDetailId - 1);
+  });
+
+  document.getElementById('detailProximo').addEventListener('click', () => {
+    renderDetail(currentDetailId + 1);
+  });
+
+  document.getElementById('detailEvolucoes').addEventListener('click', (e) => {
+    const evo = e.target.closest('[data-evo-id]');
+    if (evo) renderDetail(Number(evo.dataset.evoId));
+  });
+
 
   // Favoritos: clique no ✕ remove, clique no item abre os detalhes
   document.getElementById('favGrid').addEventListener('click', (e) => {
