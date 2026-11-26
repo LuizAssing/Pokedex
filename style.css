@@ -596,9 +596,10 @@ select.filter-chip:focus {
   border-top: 2px solid var(--ink);
 }
 
-.info-row-last {
+.info-row:last-child {
   border-bottom: 2px solid var(--ink);
 }
+
 
 .info-row dt {
   color: var(--ink-soft);
@@ -658,6 +659,231 @@ h2 {
   font-size: 13px;
   font-weight: 600;
 }
+
+/* faixas de cor das barras de status */
+.stat-fill.baixo {
+  background:
+    repeating-linear-gradient(90deg, transparent 0 9px, var(--card) 9px 11px),
+    var(--red);
+}
+
+.stat-fill.medio {
+  background:
+    repeating-linear-gradient(90deg, transparent 0 9px, var(--card) 9px 11px),
+    var(--gold);
+}
+
+.stat-fill.alto {
+  background:
+    repeating-linear-gradient(90deg, transparent 0 9px, var(--card) 9px 11px),
+    var(--ok);
+}
+
+.stat-total {
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 2px solid var(--ink);
+}
+
+.stat-total .stat-label,
+.stat-total .stat-val {
+  font-weight: 800;
+  color: var(--ink);
+}
+
+/* topo: voltar + anterior / próximo */
+.detail-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.detail-topo .back {
+  margin-bottom: 0;
+}
+
+.detail-navegacao {
+  display: flex;
+  gap: 8px;
+}
+
+.detail-nav-btn {
+  padding: 6px 12px;
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+  background: var(--card);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.detail-nav-btn:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.detail-hero figcaption {
+  margin-top: 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-mid);
+}
+
+.detail-bloco h2 {
+  margin-top: 28px;
+}
+
+.detail-descricao {
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 15px;
+  line-height: 1.55;
+  background: var(--card);
+  border-left: 4px solid var(--red);
+}
+
+.detail-fonte {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.raridade {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 2px solid var(--ink);
+  border-radius: 3px;
+  background: var(--gold);
+}
+
+.info-lista {
+  margin: 0;
+}
+
+/* dano recebido por tipo */
+.eficacia {
+  margin: 0;
+  max-width: 460px;
+}
+
+.eficacia > div {
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--line-soft);
+}
+
+.eficacia dt {
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.eficacia dd {
+  margin: 0;
+  line-height: 2;
+}
+
+/* linha evolutiva */
+.detail-evolucao {
+  margin-top: 48px;
+  padding-top: 8px;
+  border-top: 2px solid var(--ink);
+}
+
+.evo-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.evo-etapa {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.evo-etapa + .evo-etapa::before {
+  content: '→';
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+
+.evo-item {
+  width: 140px;
+  padding: 10px;
+  text-align: center;
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-radius: 6px;
+  transition: transform .12s, box-shadow .12s;
+}
+
+.evo-item:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.evo-item.atual {
+  background: var(--paper-dark);
+}
+
+.evo-item img {
+  display: block;
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 6px;
+  object-fit: contain;
+}
+
+.evo-item .dex-no {
+  margin-top: 0;
+}
+
+.evo-item strong,
+.evo-item small {
+  display: block;
+}
+
+.evo-item small {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink-mid);
+}
+
+@media (max-width: 600px) {
+  .detail-topo {
+    flex-wrap: wrap;
+  }
+
+  .evo-lista,
+  .evo-etapa {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .evo-etapa + .evo-etapa::before {
+    content: '↓';
+    text-align: center;
+  }
+
+  .evo-item {
+    width: 100%;
+  }
+}
+
 
 /* ---- FAVORITOS ---- */
 #favoritos h1 {

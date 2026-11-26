@@ -149,35 +149,69 @@
     </header>
 
     <main class="page">
-      <button type="button" class="back" id="backBtn">
-        ← Voltar
-      </button>
+          <div class="detail-topo">
+        <button type="button" class="back" id="backBtn">← Voltar</button>
+        <div class="detail-navegacao">
+          <button type="button" class="detail-nav-btn" id="detailAnterior">‹ <span id="detailAnteriorNo"></span></button>
+          <button type="button" class="detail-nav-btn" id="detailProximo"><span id="detailProximoNo"></span> ›</button>
+        </div>
+      </div>
 
       <article class="detail-grid">
-        <figure class="detail-hero">
-          <img id="detailImg" src="" alt="">
-        </figure>
+        <div class="detail-coluna">
+          <figure class="detail-hero">
+            <img id="detailImg" src="" alt="">
+            <figcaption id="detailCategoria"></figcaption>
+          </figure>
+
+          <section class="detail-bloco" aria-labelledby="tituloDescricao">
+            <h2 id="tituloDescricao">Descrição da Pokédex</h2>
+            <p class="detail-descricao" id="detailDescricao"></p>
+            <p class="detail-fonte" id="detailFonte"></p>
+          </section>
+        </div>
 
         <div>
           <span class="eyebrow" id="detailNo"></span>
           <h1 id="detailName"></h1>
           <span id="detailTypes"></span>
+          <span id="detailRaridade"></span>
           <br>
-          <button type="button" class="fav-btn" id="detailFavBtn">
-            ☆ Favoritar
-          </button>
+          <button type="button" class="fav-btn" id="detailFavBtn">☆ Favoritar</button>
 
-          <dl class="info-row">
-            <dt>Altura</dt>
-            <dd id="detailHeight"></dd>
-          </dl>
-          <dl class="info-row">
-            <dt>Peso</dt>
-            <dd id="detailWeight"></dd>
-          </dl>
-          <dl class="info-row info-row-last">
-            <dt>Habilidades</dt>
-            <dd id="detailAbilities"></dd>
+          <dl class="info-lista">
+            <div class="info-row">
+              <dt>Altura</dt>
+              <dd id="detailHeight"></dd>
+            </div>
+            <div class="info-row">
+              <dt>Peso</dt>
+              <dd id="detailWeight"></dd>
+            </div>
+            <div class="info-row">
+              <dt>Habilidades</dt>
+              <dd id="detailAbilities"></dd>
+            </div>
+            <div class="info-row">
+              <dt>Geração</dt>
+              <dd id="detailGeracao"></dd>
+            </div>
+            <div class="info-row">
+              <dt>Habitat</dt>
+              <dd id="detailHabitat"></dd>
+            </div>
+            <div class="info-row">
+              <dt>Taxa de captura</dt>
+              <dd id="detailCaptura"></dd>
+            </div>
+            <div class="info-row">
+              <dt>Gênero</dt>
+              <dd id="detailGenero"></dd>
+            </div>
+            <div class="info-row">
+              <dt>Experiência base</dt>
+              <dd id="detailExperiencia"></dd>
+            </div>
           </dl>
 
           <h2>Status base</h2>
@@ -224,8 +258,35 @@
             </div>
             <span class="stat-val" id="statSpeedVal"></span>
           </div>
+          <div class="stat-row stat-total">
+            <span class="stat-label">Total</span>
+            <span class="stat-val" id="statTotal"></span>
+          </div>
+          <p class="detail-fonte">As barras usam como referência 255, o maior status base que existe nos jogos.</p>
+
+          <h2>Dano recebido por tipo</h2>
+          <dl class="eficacia">
+            <div>
+              <dt>Fraco contra</dt>
+              <dd id="detailFraquezas"></dd>
+            </div>
+            <div>
+              <dt>Resistente a</dt>
+              <dd id="detailResistencias"></dd>
+            </div>
+            <div>
+              <dt>Imune a</dt>
+              <dd id="detailImunidades"></dd>
+            </div>
+          </dl>
         </div>
       </article>
+
+      <section class="detail-evolucao" aria-labelledby="tituloEvolucao">
+        <h2 id="tituloEvolucao">Linha evolutiva</h2>
+        <ol class="evo-lista" id="detailEvolucoes"></ol>
+      </section>
+
     </main>
   </section>
 
